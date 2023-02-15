@@ -1,73 +1,65 @@
 import tensorflow as tf
-from tensorflow.python.keras import Input
-from tensorflow.python.keras.layers import LSTM, Embedding
-from tensorflow.python.layers.core import Dense
-
-from skeleton.common import *
-
-
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 class ChatBot:
-    """模型对象"""
-    model = tf.keras.Sequential()
+    def __init__(self, model_path):
+        self.text = None
+        self.tokenizer = Tokenizer()
+        self.sequences = None
+        self.max_sequence_len = None
+        self.num_words = None
+        self.input_sequences = None
+        self.output_sequences = None
+        self.model = None
+        self.model_path = None
 
-    """模型存储&加载地址"""
-    model_dir = None
+    def load_novel(self, novel_path):
+        with open(novel_path, 'r') as f:
+            self.text = f.read()
 
-    """语料库"""
-    corpus = []
+    def preprocess_text(self):
+        self.tokenizer.fit_on_texts([self.text])
+        self.sequences = self.tokenizer.texts_to_sequences([self.text])[0]
+        self.input_sequences = []
+        self.output_sequences = []
+        for i in range(1, len(self.sequences)):
+            self.input_sequences.append(self.sequences[:i])
+            self.output_sequences.append(self.sequences[i])
 
-    def __init__(self, model_dir: str):
-        self.model_dir = model_dir
+        self.input_sequences = pad_sequences(self.input_sequences, maxlen=self.max_sequence_len, padding='pre')
+        self.output_sequences = tf.keras.utils.to_categorical(self.output_sequences, num_classes=self.num_words)
+        self.max_sequence_len = max([len(seq) for seq in self.input_sequences])
+        self.num_words = len(self.tokenizer.word_index) + 1
 
-    def init_model(self, num_word_tokens=10000, embedding_dimension=64, num_lstm_units=64):
-        """
-        :param num_word_tokens:
-        :param embedding_dimension: 是词嵌入的维数。词嵌入是一种将词汇表示为密集矢量（即浮点数数组）的方法，这些矢量表示词语的语义。这个参数控制着词嵌入的维数，比如如果设为 64，则词嵌入的每个词的向量大小为 64 位。
-        :param batch_size: 是批量训练的大小，它指定了在每次训练迭代中网络要看到的数据样本数量。如果将 batch_size 设置为 128，则网络每次迭代都将看到 128 个数据样本。
-        :param num_lstm_units: 是 LSTM 单元的数量，LSTM 是一种递归神经网络（RNN）
-        :return:
-        """
-        self.model.add(tf.keras.layers.Embedding(input_dim=num_word_tokens, output_dim=embedding_dimension,
-                                                 batch_input_shape=(None,)))
-        self.model.add(tf.keras.layers.LSTM(units=num_lstm_units, return_sequences=True, stateful=True,
-                                            recurrent_initializer='glorot_uniform'))
-        self.model.add(tf.keras.layers.Dense(units=num_word_tokens))
-        self.model.add(Dense(num_word_tokens, activation='softmax'))
-        self.compile_model()
+    def build_model(self):
+        self.model = tf.keras.Sequential([
+            tf.keras.layers.Embedding(self.num_words, 64, input_length=self.max_sequence_len),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(20)),
+            tf.keras.layers.Dense(self.num_words, activation='softmax')
+        ])
 
     def compile_model(self):
-        self.model.compile(optimizer=tf.keras.optimizers.Adam(),
-                           loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True))
+        self.model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
 
-    def add_material(self, content):
-        self.corpus.append(content)
-
-    def add_material_from_file(self, file_path: str):
-        input_corpus = open(file_path, "r").read().splitlines()
-        for content in input_corpus:
-            self.corpus.append(content)
-
-    def train(self, batch_size=128):
-        processed_corpus = preprocess_corpus(self.corpus)
-
-        # 创建词典，并对语料库进行编号
-        word_to_idx, idx_to_word, num_word_tokens = build_dictionary(processed_corpus)
-
-        # 将语料库转换为数字序列
-        corpus_indices = [word_to_idx[word] for sentence in processed_corpus for word in sentence]
-
-        # 准备训练数据
-        train_data = build_training_data(corpus_indices, num_word_tokens, batch_size)
-        self.init_model(num_word_tokens=num_word_tokens)
-        # 训练模型
-        self.model.fit(train_data, epochs=5)
-
-    def load_model(self):
-        self.model = tf.keras.models.load_model()
+    def train_model(self, epochs=100):
+        self.model.fit(self.input_sequences, self.output_sequences, epochs=epochs)
 
     def save_model(self):
-        self.model.save(self.model_dir)
+        self.model.save(self.model_path)
 
-    def predict(self, input_sentence: str) -> str:
-        return self.model.predict(input_sentence)
+    def load_model(self):
+        self.model = tf.keras.models.load_model(self.model_path)
+
+    def generate_text(self, seed_text, next_words=100):
+        for _ in range(next_words):
+            token_list = self.tokenizer.texts_to_sequences([seed_text])[0]
+            token_list = pad_sequences([token_list], maxlen=self.max_sequence_len-1, padding='pre')
+            predicted = self.model.predict(token_list, verbose=0)
+            predicted_word = ""
+            for word, index in self.tokenizer.word_index.items():
+                if index == tf.argmax(predicted, axis=1).numpy()[0]:
+                    predicted_word = word
+                    break
+            seed_text += " " + predicted_word
+        return seed_text

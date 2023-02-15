@@ -10,11 +10,11 @@ if __name__ == '__main__':
     # nltk.download('punkt')
     # nltk.download('stopwords')
     chatbot = ChatBot("../model/chatbot")
-    chatbot.add_material_from_file('../material/红楼梦')
-    chatbot.train()
+    chatbot.load_novel(novel_path="../material/红楼梦")
+    chatbot.preprocess_text()
+    chatbot.build_model()
+    chatbot.compile_model()
+    chatbot.train_model(epochs=100)
     chatbot.save_model()
-    # chatbot.load_model()
-    resp = chatbot.predict("哈哈")
-    print(resp)
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    generated_text = chatbot.generate_text("The man")
+    print(generated_text)
