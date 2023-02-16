@@ -1,6 +1,9 @@
+import pickle
+import os
 import tensorflow as tf
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
+
 
 class ChatBot:
     def __init__(self, model_path):
@@ -12,7 +15,10 @@ class ChatBot:
         self.input_sequences = None
         self.output_sequences = None
         self.model = None
-        self.model_path = None
+        self.model_path = model_path
+        if not os.path.exists(self.model_path):
+            os.makedirs(self.model_path)
+        self.tokenizer_path = self.model_path + "/tokenizer.data"
 
     def load_novel(self, novel_path):
         with open(novel_path, 'r') as f:
@@ -45,16 +51,26 @@ class ChatBot:
     def train_model(self, epochs=100):
         self.model.fit(self.input_sequences, self.output_sequences, epochs=epochs)
 
+    def save_tokenizer(self):
+        with open(self.tokenizer_path, 'wb') as f:
+            pickle.dump(self.tokenizer, f)
+
+    def load_tokenizer(self):
+        with open(self.tokenizer_path, 'rb') as f:
+            self.tokenizer = pickle.load(f)
+
     def save_model(self):
         self.model.save(self.model_path)
+        self.save_tokenizer()
 
     def load_model(self):
+        self.load_tokenizer()
         self.model = tf.keras.models.load_model(self.model_path)
 
-    def generate_text(self, seed_text, next_words=100):
+    def generate_text(self, seed_text, next_words=20):
         for _ in range(next_words):
             token_list = self.tokenizer.texts_to_sequences([seed_text])[0]
-            token_list = pad_sequences([token_list], maxlen=self.max_sequence_len-1, padding='pre')
+            token_list = pad_sequences([token_list], maxlen=self.model.input.shape[1], padding='pre')
             predicted = self.model.predict(token_list, verbose=0)
             predicted_word = ""
             for word, index in self.tokenizer.word_index.items():
