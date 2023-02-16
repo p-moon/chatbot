@@ -3,7 +3,7 @@ import os
 import tensorflow as tf
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-
+import threading
 
 class ChatBot:
     def __init__(self, model_path):
@@ -39,17 +39,33 @@ class ChatBot:
         self.num_words = len(self.tokenizer.word_index) + 1
 
     def build_model(self):
-        self.model = tf.keras.Sequential([
-            tf.keras.layers.Embedding(self.num_words, 64, input_length=self.max_sequence_len),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(20)),
-            tf.keras.layers.Dense(self.num_words, activation='softmax')
-        ])
+        with tf.distribute.MirroredStrategy().scope():
+            self.model = tf.keras.Sequential([
+                tf.keras.layers.Embedding(self.num_words, 64, input_length=self.max_sequence_len),
+                tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(20)),
+                tf.keras.layers.Dense(self.num_words, activation='softmax')
+            ])
 
     def compile_model(self):
         self.model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
 
-    def train_model(self, epochs=100):
-        self.model.fit(self.input_sequences, self.output_sequences, epochs=epochs)
+    def train_model(self, epochs=100, batch_size=64, num_threads=4):
+        num_batches = len(self.input_sequences) // batch_size
+        threads = []
+        for i in range(num_threads):
+            start_idx = i * num_batches // num_threads
+            end_idx = (i + 1) * num_batches // num_threads
+            thread_input = self.input_sequences[start_idx:end_idx]
+            thread_output = self.output_sequences[start_idx:end_idx]
+            thread = threading.Thread(target=self.train_batch, args=(thread_input, thread_output, epochs))
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+    def train_batch(self, input_sequences, output_sequences, epochs):
+        self.model.fit(input_sequences, output_sequences, epochs=epochs)
 
     def save_tokenizer(self):
         with open(self.tokenizer_path, 'wb') as f:

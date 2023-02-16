@@ -11,7 +11,7 @@ if __name__ == '__main__':
     chatbot.preprocess_text()
     chatbot.build_model()
     chatbot.compile_model()
-    chatbot.train_model(epochs=100)
+    chatbot.train_model(epochs=100, num_threads=15)
     chatbot.save_model()
     chatbot.load_model()
     generated_text = chatbot.generate_text("宝玉")
